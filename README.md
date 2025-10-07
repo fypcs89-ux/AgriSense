@@ -66,18 +66,3 @@ AgriSense provides **real-time IoT sensor monitoring**, **AI-powered crop recomm
    cd agrisense-dashboard
 
 ---
-
-## 🔐 Vercel Deployment: Environment Variables (Vite)
-
-Add these in Vercel → Project → Settings → Environment Variables for both Preview and Production. Keep the `VITE_` prefix (required for Vite):
-
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN` → e.g. `your-project-id.firebaseapp.com`
-- `VITE_FIREBASE_DATABASE_URL` → full RTDB URL, e.g. `https://<db>-default-rtdb.<region>.firebasedatabase.app`
-- `VITE_FIREBASE_PROJECT_ID` → e.g. `your-project-id`
-- `VITE_FIREBASE_STORAGE_BUCKET` → e.g. `your-project-id.appspot.com`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
-- (optional) `VITE_FIREBASE_MEASUREMENT_ID`
-
-Local development: copy `.env.example` to `.env.local` and fill real values (do not commit `.env.local`).
