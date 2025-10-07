@@ -306,9 +306,11 @@ def create_app():
     return app
 
 
+# Create the app instance for gunicorn
+app = create_app()
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app = create_app()
     try:
         # Print routes to help diagnose 404s
         print("[backend] URL map:", app.url_map)
