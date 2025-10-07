@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "sensorData": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "history": {
+          "hourly": {
+            "$entryId": {
+              ".validate": "newData.hasChildren(['timestamp','date','hour','day','temperature','humidity','moisture','nitrogen','phosphorus','potassium','ph','readingCount'])"
+            }
+          },
+          "daily": {
+            "$dayKey": {
+              ".validate": "newData.hasChildren(['id','date','dayNumber','totalReadings','hourCount','isComplete','avgTemperature','avgHumidity','avgMoisture','avgNitrogen','avgPhosphorus','avgPotassium','avgPh'])"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "agrisense-dashboard",
+  "version": "1.0.0",
+  "description": "Smart Agriculture Dashboard with Firebase Integration",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase": "^10.14.1",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.8.1",
+    "recharts": "^2.8.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.2",
+    "vite": "^5.0.8"
+  }
+}
