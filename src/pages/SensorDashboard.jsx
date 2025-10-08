@@ -26,32 +26,36 @@ const SensorDashboard = () => {
   });
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
-
   useEffect(() => {
     // Attach a realtime listener. Try multiple common paths and shapes.
     let detach = null;
 
     const mapReading = (data) => {
       if (!data || typeof data !== "object") return null;
-      // Shape A: nested { dht11: {temperature, humidity}, npk: {soilHumidity, nitrogen, phosphorus, potassium, ph} }
-      if (data?.dht11 || data?.npk) {
+      // Shape A: nested { air: { temperature, humidity }, soil: { soilTemperature/soil_temp/soilTemp, soilHumidity, nitrogen, phosphorus, potassium, ph } }
+      if (data?.air || data?.soil) {
         return {
-          temperature: Number(data?.dht11?.temperature ?? 0),
+          temperature: Number(data?.air?.temperature ?? 0),
           soilTemperature: Number(
-            data?.npk?.soilTemperature ??
-            data?.npk?.soil_temp ??
-            data?.npk?.soilTemp ??
+            data?.soil?.temperature ??
+            data?.soil?.soilTemperature ??
+            data?.soil?.soil_temp ??
+            data?.soil?.soilTemp ??
             data?.soilTemperature ??
             data?.soil_temp ??
             data?.soilTemp ??
             0
           ),
-          humidity: Number(data?.dht11?.humidity ?? 0),
-          moisture: Number(data?.npk?.soilHumidity ?? 0),
-          nitrogen: Number(data?.npk?.nitrogen ?? 0),
-          phosphorus: Number(data?.npk?.phosphorus ?? 0),
-          potassium: Number(data?.npk?.potassium ?? 0),
-          ph: Number(data?.npk?.ph ?? 0),
+          humidity: Number(data?.air?.humidity ?? 0),
+          moisture: Number(
+            data?.soil?.humidity ??
+            data?.soil?.soilHumidity ??
+            0
+          ),
+          nitrogen: Number(data?.soil?.N ?? data?.soil?.nitrogen ?? 0),
+          phosphorus: Number(data?.soil?.P ?? data?.soil?.phosphorus ?? 0),
+          potassium: Number(data?.soil?.K ?? data?.soil?.potassium ?? 0),
+          ph: Number(data?.soil?.pH ?? data?.soil?.ph ?? 0),
         };
       }
       // Shape B: flat keys { temperature, humidity, moisture, nitrogen, phosphorus, potassium, ph }

@@ -149,23 +149,44 @@ export const DataProvider = ({ children }) => {
           const base = `users/${currentUser.uid}/history`;
           const entryRef = ref(database, `${base}/hourly/${entryId}`);
           const curVals = {
+            // Air temperature preferred, fallback to flat or legacy dht11
             temperature: Number(
-              data?.dht11?.temperature ?? data?.temperature ?? 0
+              data?.air?.temperature ?? data?.temperature ?? data?.dht11?.temperature ?? 0
             ),
+            // Soil temperature: prefer soil.temperature then legacy variants and flat fallbacks
             soilTemperature: Number(
-              data?.npk?.soilTemperature ?? data?.soilTemperature ?? 0
+              data?.soil?.temperature ??
+              data?.soil?.soilTemperature ??
+              data?.soil?.soil_temp ??
+              data?.soil?.soilTemp ??
+              data?.soilTemperature ??
+              0
             ),
-            humidity: Number(data?.dht11?.humidity ?? data?.humidity ?? 0),
+            // Air humidity preferred, fallback to flat or legacy dht11
+            humidity: Number(
+              data?.air?.humidity ?? data?.humidity ?? data?.dht11?.humidity ?? 0
+            ),
+            // Soil moisture/humidity: prefer soil.humidity then soil.soilHumidity then flat
             moisture: Number(
-              data?.npk?.soilHumidity ??
-                data?.moisture ??
-                data?.soilHumidity ??
-                0
+              data?.soil?.humidity ??
+              data?.soil?.soilHumidity ??
+              data?.moisture ??
+              data?.soilHumidity ??
+              0
             ),
-            nitrogen: Number(data?.npk?.nitrate ?? data?.npk?.nitrogen ?? data?.nitrogen ?? 0),
-            phosphorus: Number(data?.npk?.phosphorus ?? data?.phosphorus ?? 0),
-            potassium: Number(data?.npk?.potassium ?? data?.potassium ?? 0),
-            ph: Number(data?.npk?.ph ?? data?.ph ?? 0),
+            // Nutrients: prefer N/P/K/pH on soil, fallback to legacy names and flat
+            nitrogen: Number(
+              data?.soil?.N ?? data?.soil?.nitrogen ?? data?.npk?.nitrate ?? data?.npk?.nitrogen ?? data?.nitrogen ?? 0
+            ),
+            phosphorus: Number(
+              data?.soil?.P ?? data?.soil?.phosphorus ?? data?.npk?.phosphorus ?? data?.phosphorus ?? 0
+            ),
+            potassium: Number(
+              data?.soil?.K ?? data?.soil?.potassium ?? data?.npk?.potassium ?? data?.potassium ?? 0
+            ),
+            ph: Number(
+              data?.soil?.pH ?? data?.soil?.ph ?? data?.npk?.ph ?? data?.ph ?? 0
+            ),
           };
 
           // Build a short signature of the values to detect duplicates
