@@ -13,9 +13,17 @@ const ChartCard = ({ title, value, unit, color, data, icon: Icon }) => {
     ph: '#ec4899'
   };
 
+  const currentVal = parseFloat(value) || 0;
+  const remainingVal = (color === 'ph')
+    ? Math.max(0, 8 - currentVal)
+    : (color === 'nitrogen' || color === 'phosphorus')
+      ? Math.max(0, 150 - currentVal)
+      : (color === 'potassium')
+        ? Math.max(0, 250 - currentVal)
+        : Math.max(0, 100 - currentVal);
   const chartData = [
-    { name: 'Current', value: parseFloat(value) || 0 },
-    { name: 'Remaining', value: 100 - (parseFloat(value) || 0) }
+    { name: 'Current', value: currentVal },
+    { name: 'Remaining', value: remainingVal }
   ];
 
   return (

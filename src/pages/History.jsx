@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useData } from '../contexts/DataContext.jsx';
+import { database } from '../firebase/config';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Download,
   Calendar,
@@ -15,7 +17,8 @@ import {
   Thermometer,
   Beaker,
   Leaf,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 
 const History = () => {
@@ -23,44 +26,78 @@ const History = () => {
   const [expandedDays, setExpandedDays] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
-  const { hourlyData, dailySummaries, loading, clearHistory } = useData();
+  const { hourlyData, dailySummaries, loading, clearHistory, startNewCycle, dayBuckets } = useData();
+  const [cycleExpanded, setCycleExpanded] = useState({ day1: true, day2: false, day3: false });
+  const { currentUser } = useAuth() || {};
 
-  // Normalize timestamps to Date objects to avoid runtime errors
-  const normalizedHourly = (hourlyData || []).map((r) => {
-    let ts = r.timestamp;
-    if (!(ts instanceof Date)) {
-      try {
-        ts = new Date(ts);
-      } catch {
-        ts = new Date();
+  // Normalize timestamps to Date objects to avoid runtime errors (memoized)
+  const normalizedHourly = useMemo(() => {
+    return (hourlyData || []).map((r) => {
+      let ts = r.timestamp;
+      if (!(ts instanceof Date)) {
+        try {
+          ts = new Date(ts);
+        } catch {
+          ts = new Date();
+        }
       }
-    }
-    return { ...r, timestamp: ts };
-  });
+      return { ...r, timestamp: ts };
+    });
+  }, [hourlyData]);
 
-  // Group data by day - show all days with collapsible sections
+  // Group data by date - keep existing daily history intact
   useEffect(() => {
-    const grouped = normalizedHourly.reduce((acc, reading) => {
-      const dateKey = reading.date || reading.timestamp.toISOString().split('T')[0];
-      const dayNumber = reading.day || 1;
-      
-      if (!acc[dateKey]) {
-        acc[dateKey] = {
-          date: dateKey,
-          dayNumber: dayNumber,
-          readings: []
-        };
-      }
+    const grouped = (normalizedHourly || []).reduce((acc, reading) => {
+      const dateKey = reading.date || (reading.timestamp instanceof Date
+        ? reading.timestamp.toISOString().split('T')[0]
+        : String(reading.date || ''));
+      if (!acc[dateKey]) acc[dateKey] = { date: dateKey, readings: [] };
       acc[dateKey].readings.push(reading);
       return acc;
     }, {});
-    // Sort readings within each day by hour
     Object.values(grouped).forEach(day => {
-      day.readings.sort((a, b) => a.hour - b.hour);
+      day.readings.sort((a,b)=> (a.hour ?? 0) - (b.hour ?? 0));
     });
-    
     setGroupedData(grouped);
-  }, [hourlyData]);
+  }, [normalizedHourly]);
+
+  // Export a cycle day bucket (day1/day2/day3) to CSV
+  const exportCycleDayToCSV = (dayKey, data) => {
+    if (!data) return;
+    const items = Object.entries(data.readings || {}).map(([id, r]) => ({ id, ...r }));
+    const headers = ['Date', 'Time', 'Soil Temperature (°C)', 'Moisture (%)', 'Nitrogen (mg/kg)', 'Phosphorus (mg/kg)', 'Potassium (mg/kg)', 'pH'];
+    const csvContent = [
+      headers.join(','),
+      ...items.map((item) => {
+        const ts = new Date(item.timestamp || Date.now());
+        return [
+          ts.toLocaleDateString(),
+          ts.toLocaleTimeString(),
+          item.soilTemperature ?? item.temperature ?? 0,
+          item.moisture ?? 0,
+          item.nitrogen ?? 0,
+          item.phosphorus ?? 0,
+          item.potassium ?? 0,
+          item.ph ?? 0,
+        ].join(',');
+      }),
+    ].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `agrisense-${dayKey}-cycle.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Toggle expand/collapse for 3-Day Cycle sections
+  const toggleCycleDay = (dayKey) => {
+    setCycleExpanded((prev) => ({
+      ...prev,
+      [dayKey]: !prev?.[dayKey],
+    }));
+  };
 
   const handleClearHistory = async () => {
     const ok = window.confirm('Are you sure you want to clear all history (hourly and daily)? This cannot be undone.');
@@ -76,6 +113,40 @@ const History = () => {
     } catch (e) {
       console.error('Clear history failed:', e);
       alert('Failed to clear history. Please try again.');
+    }
+  };
+
+  // Manually start a new 3-day cycle without touching hourly/daily history
+  const handleStartNewCycle = async () => {
+    const ok = window.confirm(
+      'Start a new 3-day cycle? This will clear day1/day2/day3 and results, and set currentDay to 1. Hourly/Daily history remains intact.'
+    );
+    if (!ok) return;
+    try {
+      await startNewCycle();
+      // Best-effort: clear prepared nodes so subscribers won't repopulate old averages
+      try {
+        if (currentUser?.uid) {
+          const { ref, remove } = await import('firebase/database');
+          const base = `users/${currentUser.uid}/prepared`;
+          const paths = [
+            `${base}/cropPrediction`,
+            `${base}/fertilizerPrediction`,
+            `${base}/fertilizerResult`,
+            `${base}/lockTs`,
+          ];
+          await Promise.all(paths.map(async (p) => {
+            try { await remove(ref(database, p)); } catch {}
+          }));
+        }
+      } catch {}
+      // Notify other pages to reset any cached prepared values or forms
+      try {
+        window.dispatchEvent(new Event('agrisense:start-new-cycle'));
+      } catch {}
+    } catch (e) {
+      console.error('Start new cycle failed:', e);
+      alert('Failed to start a new cycle. Please try again.');
     }
   };
 
@@ -107,7 +178,7 @@ const History = () => {
   }).sort((a, b) => new Date(b.date) - new Date(a.date));
 
   const exportDayToCSV = (day) => {
-    const headers = ['Date', 'Time', 'Soil Temperature (°C)', 'Moisture (%)', 'Nitrogen (ppm)', 'Phosphorus (ppm)', 'Potassium (ppm)', 'pH', 'Reading Count'];
+    const headers = ['Date', 'Time', 'Soil Temperature (°C)', 'Moisture (%)', 'Nitrogen (mg/kg)', 'Phosphorus (mg/kg)', 'Potassium (mg/kg)', 'pH', 'Reading Count'];
     const csvContent = [
       headers.join(','),
       ...day.readings.map(item => [
@@ -171,8 +242,8 @@ const History = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-0 page-with-top-gap">
-      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-0">
+    <div className="min-h-screen bg-gray-50 p-0 page-with-top-gap overflow-x-hidden">
+      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-0 pb-8 sm:pb-10 max-w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -192,17 +263,25 @@ const History = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto justify-start sm:justify-end mt-3 sm:mt-0">
+            <div className="w-full sm:w-auto mt-3 sm:mt-0 min-w-0 grid grid-cols-1 sm:flex sm:flex-row gap-3 justify-start sm:justify-end">
               <button
                 onClick={exportAllToCSV}
-                className="bg-primary-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-primary-600 transition-all duration-200 flex items-center space-x-2 shadow-lg hover:shadow-xl"
+                className="bg-primary-500 text-white px-4 sm:px-5 py-2 sm:py-3 rounded-lg font-semibold text-sm sm:text-base hover:bg-primary-600 transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg hover:shadow-xl w-full sm:w-auto min-w-0 whitespace-nowrap"
               >
                 <Download className="w-5 h-5" />
                 <span>Export All CSV</span>
               </button>
               <button
+                onClick={handleStartNewCycle}
+                className="bg-blue-500 text-white px-4 sm:px-5 py-2 sm:py-3 rounded-lg font-semibold text-sm sm:text-base hover:bg-blue-600 transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg hover:shadow-xl w-full sm:w-auto min-w-0 whitespace-nowrap"
+                title="Start a new 3-day cycle"
+              >
+                <RefreshCw className="w-5 h-5" />
+                <span>Start New Cycle</span>
+              </button>
+              <button
                 onClick={handleClearHistory}
-                className="bg-red-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-red-600 transition-all duration-200 flex items-center space-x-2 shadow-lg hover:shadow-xl"
+                className="bg-red-500 text-white px-4 sm:px-5 py-2 sm:py-3 rounded-lg font-semibold text-sm sm:text-base hover:bg-red-600 transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg hover:shadow-xl w-full sm:w-auto min-w-0 whitespace-nowrap"
                 title="Clear results and history"
               >
                 <Trash2 className="w-5 h-5" />
@@ -211,6 +290,12 @@ const History = () => {
             </div>
           </div>
         </motion.div>
+
+        
+        
+        
+
+        
 
         {/* Filters */}
         <motion.div
@@ -254,137 +339,124 @@ const History = () => {
           </div>
         </motion.div>
 
-        {/* Daily Grouped Data */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          className="space-y-4"
-        >
-          {filteredDays.length === 0 && (
-            <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-10 text-center text-gray-500">
-              No historical hourly data available yet.
-            </div>
-          )}
-
-          {filteredDays.map((day, dayIndex) => (
-            <div key={day.date} className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-              {/* Day Header */}
-              <div 
-                className="bg-gray-50 px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-100 transition-colors duration-200"
-                onClick={() => toggleDay(day.date)}
-              >
-                <div className="flex items-center space-x-3">
-                  <Calendar className="w-5 h-5 text-primary-600" />
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-800">
-                      Date ({day.date})
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {day.readings.length} hourly readings collected and stored
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      exportDayToCSV(day);
-                    }}
-                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-200"
-                    title="Export this day's data"
+        {/* 3-Day Cycle (5-readings per day) */}
+        {dayBuckets && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+            className="space-y-4 mb-8"
+          >
+            <h2 className="text-2xl font-bold text-gray-800">3-Day Cycle</h2>
+            {([1, 2, 3]).map((n) => {
+              const key = `day${n}`;
+              const info = dayBuckets[key];
+              const readings = info?.readings
+                ? Object.entries(info.readings).map(([id, r]) => ({ id, ...r }))
+                : [];
+              if (!info && readings.length === 0) return null;
+              return (
+                <div
+                  key={key}
+                  className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden"
+                >
+                  <div
+                    className="bg-gray-50 px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-gray-100 transition-colors duration-200"
+                    onClick={() => toggleCycleDay(key)}
                   >
-                    <Download className="w-4 h-4" />
-                  </button>
-                  {expandedDays[day.date] ? (
-                    <ChevronUp className="w-5 h-5 text-gray-500" />
-                  ) : (
-                    <ChevronDown className="w-5 h-5 text-gray-500" />
+                    <div className="flex items-center space-x-3">
+                      <Calendar className="w-5 h-5 text-primary-600" />
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-800">
+                          Day {n} {info?.isComplete ? "(completed)" : "(in progress)"}
+                        </h3>
+                        <p className="text-sm text-gray-600">{readings.length} readings</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {readings.length > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (typeof exportCycleDayToCSV === "function")
+                              exportCycleDayToCSV(key, info);
+                          }}
+                          className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-200"
+                          title={`Export ${key}`}
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      )}
+                      {cycleExpanded?.[key] ? (
+                        <ChevronUp className="w-5 h-5 text-gray-500" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-500" />
+                      )}
+                    </div>
+                  </div>
+                  {cycleExpanded?.[key] && readings.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Time
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Soil Temp (°C)
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Moisture (%)
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              N (mg/kg)
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              P (mg/kg)
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              K (mg/kg)
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              pH
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {readings.map((r, idx) => (
+                            <tr key={r.id || idx} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                {(() => {
+                                  const ts = new Date(r.timestamp || Date.now());
+                                  return isNaN(ts)
+                                    ? "-"
+                                    : ts.toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      });
+                                })()}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                                {r.soilTemperature ?? r.temperature}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{r.moisture}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{r.nitrogen}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{r.phosphorus}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{r.potassium}</td>
+                              <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{r.ph}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
-              </div>
+              );
+            })}
+          </motion.div>
+        )}
 
-              {/* Hourly Readings */}
-              {expandedDays[day.date] && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="overflow-x-auto"
-                >
-                  <table className="w-full">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Time
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Soil Temp (°C)
-                        </th>
-                        
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Moisture (%)
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          N (ppm)
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          P (ppm)
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          K (ppm)
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          pH
-                        </th>
-                        
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {day.readings.map((reading, readingIndex) => (
-                        <motion.tr
-                          key={reading.id}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ duration: 0.3, delay: readingIndex * 0.02 }}
-                          className="hover:bg-gray-50 transition-colors duration-200"
-                        >
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {(() => {
-                              const ts = reading.timestamp instanceof Date ? reading.timestamp : new Date(reading.timestamp);
-                              return isNaN(ts.getTime()) ? '-' : ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                            })()}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.soilTemperature ?? reading.temperature}
-                          </td>
-                          
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.moisture}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.nitrogen}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.phosphorus}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.potassium}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {reading.ph}
-                          </td>
-                          
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </motion.div>
-              )}
-            </div>
-          ))}
-        </motion.div>
+        {/* Removed date-based Daily Grouped Data per user request */}
 
         {/* Summary Stats */}
         <motion.div

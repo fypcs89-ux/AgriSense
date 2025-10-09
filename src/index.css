@@ -19,6 +19,18 @@ body {
   background-color: #f8fafc;
 }
 
+/* Prevent horizontal scrollbar globally */
+html, body, #root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Ensure images and SVGs don't overflow their containers */
+img, svg {
+  max-width: 100%;
+  height: auto;
+}
+
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
@@ -150,6 +162,24 @@ select:focus {
 .main-content {
   /* Prevent first-child margin collapse that can create large top gaps on small devices */
   padding-top: 1px;
+  overflow-x: hidden; /* guard against accidental horizontal overflow */
+}
+
+/* Ensure descendants don't exceed viewport width */
+.main-content * {
+  max-width: 100%;
+  word-wrap: break-word;
+}
+
+/* Grids and flex containers should allow shrinking instead of overflowing */
+.main-content .grid,
+.main-content .flex {
+  min-width: 0;
+}
+
+/* Tables may overflow; allow horizontal scroll within their container instead of page */
+.main-content table {
+  width: 100%;
 }
 
 .main-content h1,

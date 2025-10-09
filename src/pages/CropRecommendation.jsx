@@ -19,14 +19,14 @@ import {
 const CropRecommendation = () => {
   const [loading, setLoading] = useState(false);
   const [recommendation, setRecommendation] = useState(null);
-  const [sensorData, setSensorData] = useState(null); // averaged values snapshot
+  const [sensorData, setSensorData] = useState(null); // 3-day averaged values snapshot
   const [errorMsg, setErrorMsg] = useState("");
   const [predictionReady, setPredictionReady] = useState(false);
   const [cachedPrediction, setCachedPrediction] = useState(null); // { crop, payload, ts }
   const [lockTs, setLockTs] = useState(() => {
     try { return Number(localStorage.getItem('agrisense:lock_ts') || 0); } catch { return 0; }
   });
-  const { hourlyData } = useData();
+  const { hourlyData, dayBuckets } = useData();
   const { currentUser } = useAuth();
   // Use Vite dev proxy; call relative API path in development
   const [rainfall, setRainfall] = useState("");
@@ -41,26 +41,13 @@ const CropRecommendation = () => {
     });
   }, [hourlyData, lockTs]);
 
-  // Last 5 averages mirroring Results.jsx
-  const last5Average = React.useMemo(() => {
-    if (!latestNewReadings || latestNewReadings.length < 5) return null;
-    const latest = latestNewReadings.slice(0, 5);
-    const sum = (k) => latest.reduce((acc, r) => acc + Number(r?.[k] ?? 0), 0);
-    const avg = (k) => (sum(k) / latest.length).toFixed(1);
-    return {
-      count: latest.length,
-      temperature: avg("temperature"),
-      soilTemperature: avg("soilTemperature"),
-      moisture: avg("moisture"),
-      nitrogen: avg("nitrogen"),
-      phosphorus: avg("phosphorus"),
-      potassium: avg("potassium"),
-      ph: avg("ph"),
-    };
-  }, [latestNewReadings]);
+  // Use 3-day averages coming from Results prepared node for UI
+  const uiAverages = React.useMemo(() => sensorData || null, [sensorData]);
 
-  // Use computed averages for UI if available, otherwise fallback to prepared payload
-  const uiAverages = React.useMemo(() => last5Average || sensorData || null, [last5Average, sensorData]);
+  // Only show 3-day card when all 3 days are complete
+  const threeComplete = React.useMemo(() => (
+    !!(dayBuckets?.day1?.isComplete && dayBuckets?.day2?.isComplete && dayBuckets?.day3?.isComplete)
+  ), [dayBuckets?.day1?.isComplete, dayBuckets?.day2?.isComplete, dayBuckets?.day3?.isComplete]);
 
   // Subscribe to prepared prediction written by Results page
   React.useEffect(() => {
@@ -94,7 +81,7 @@ const CropRecommendation = () => {
               setPredictionReady(false);
             } else {
               setCachedPrediction({ crop: val.crop, payload: normalized, ts });
-              setSensorData(normalized);
+              setSensorData(normalized); // this is 3-day averages
               setPredictionReady(true);
               // Newer prediction arrived; clear lock everywhere
               if (lockTs && ts > lockTs) {
@@ -202,7 +189,7 @@ const CropRecommendation = () => {
     return !!lockTs; // authoritative lock until explicitly cleared by newer prediction path
   }, [lockTs]);
 
-  // Compute recommendation by calling backend using averaged values + rainfall
+  // Compute recommendation by calling backend using 3-day averaged values + rainfall
   const revealRecommendation = async () => {
     if (!predictionReady || !sensorData) return;
     const r = Number(rainfall);
@@ -215,9 +202,7 @@ const CropRecommendation = () => {
           ? sensorData.soilTemperature
           : sensorData.temperature
       );
-      const humidityForModel = Number(
-        (last5Average?.moisture ?? sensorData?.moisture ?? sensorData?.humidity ?? 0)
-      );
+      const humidityForModel = Number(sensorData?.moisture ?? sensorData?.humidity ?? 0);
       const payload = {
         nitrogen: Number(sensorData.nitrogen),
         phosphorus: Number(sensorData.phosphorus),
@@ -247,7 +232,7 @@ const CropRecommendation = () => {
         water_requirement: 800,
         best_planting_time: "March - April",
         reasons: [
-          "Averaged last 5 sensor readings",
+          "3-Day average soil conditions",
           `N=${payload.nitrogen}, P=${payload.phosphorus}, K=${payload.potassium}`,
           `${sensorData.soilTemperature != null ? `Soil Temp=${payload.temperature}°C` : `Temp=${payload.temperature}°C`}, Moisture=${payload.humidity}%`,
           `pH=${payload.ph}, Rainfall=${payload.rainfall}mm`,
@@ -255,6 +240,38 @@ const CropRecommendation = () => {
       };
       setRecommendation(uiRecommendation);
       setErrorMsg("");
+
+      // Persist prepared nodes with real rainfall and without soilTemperature
+      try {
+        if (currentUser?.uid) {
+          const { ref, set } = await import('firebase/database');
+          const base = `users/${currentUser.uid}/prepared`;
+          const storageAverages = {
+            nitrogen: Number(sensorData.nitrogen),
+            phosphorus: Number(sensorData.phosphorus),
+            potassium: Number(sensorData.potassium),
+            temperature: tempToUse,
+            humidity: humidityForModel,
+            moisture: Number(sensorData?.moisture ?? 0),
+            ph: Number(sensorData.ph),
+            rainfall: r,
+          };
+          await set(ref(database, `${base}/cropPrediction`), {
+            ts: Date.now(),
+            crop: data.crop,
+            averages: storageAverages,
+          });
+          await set(ref(database, `${base}/fertilizerPrediction`), {
+            ts: Date.now(),
+            crop: data.crop,
+            soilType: 'Black',
+            averages: storageAverages,
+          });
+        }
+      } catch (e) {
+        // Non-fatal: UI already shows recommendation; log for debugging
+        console.warn('Failed to persist prepared nodes with user rainfall:', e);
+      }
     } catch (e) {
       setErrorMsg('Prediction failed');
       setRecommendation(null);
@@ -264,8 +281,8 @@ const CropRecommendation = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 page-with-top-gap">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 page-with-top-gap overflow-x-hidden">
+      <div className="max-w-6xl mx-auto w-full max-w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -312,7 +329,7 @@ const CropRecommendation = () => {
 
           <button
             onClick={revealRecommendation}
-            disabled={loading || !predictionReady || isLocked || !(Number.isFinite(Number(rainfall)) && Number(rainfall) > 0)}
+            disabled={loading || !predictionReady || isLocked || !threeComplete || !(Number.isFinite(Number(rainfall)) && Number(rainfall) > 0)}
             className="bg-primary-500 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-semibold text-base sm:text-lg hover:bg-primary-600 transition-all duration-200 flex items-center justify-center space-x-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
           >
             {loading ? (
@@ -323,14 +340,14 @@ const CropRecommendation = () => {
             ) : (
               <>
                 <Brain className="w-6 h-6" />
-                <span>{(predictionReady && !isLocked) ? (Number(rainfall) > 0 ? "Get Crop Recommendation" : "Enter rainfall to continue") : "Waiting for 5 readings..."}</span>
+                <span>{(predictionReady && !isLocked) ? (Number(rainfall) > 0 ? "Get Crop Recommendation" : "Enter rainfall to continue") : (threeComplete ? "Loading 3-day averages..." : "Waiting for 3 days to complete...")}</span>
               </>
             )}
           </button>
         </motion.div>
 
-        {/* Averaged Sensor Data (last 5 readings) */}
-        {uiAverages && !isLocked && (
+        {/* 3-Day Average Values */}
+        {uiAverages && !isLocked && threeComplete && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -339,7 +356,7 @@ const CropRecommendation = () => {
           >
             <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center space-x-2">
               <FlaskConical className="w-5 h-5 text-primary-600" />
-              <span>Averaged Soil Conditions (last 5 readings)</span>
+              <span>3-Day Average Values</span>
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
               {[
@@ -361,11 +378,11 @@ const CropRecommendation = () => {
                   <div key={key} className="text-center p-3 bg-gray-50 rounded-lg">
                     <div className="text-sm text-gray-600 capitalize mb-1">{label}</div>
                     <div className="text-lg font-semibold text-gray-800">
-                      {typeof value === 'number' ? Number(value).toFixed(1) : value}
+                      {typeof value === 'number' ? Number(key === 'ph' ? Math.min(Number(value), 9) : value).toFixed(1) : value}
                       {(key === 'soilTemperature') && '°C'}
                       {(key === 'moisture') && '%'}
                       {key === 'ph' && ' pH'}
-                      {(key === 'nitrogen' || key === 'phosphorus' || key === 'potassium') && ' ppm'}
+                      {(key === 'nitrogen' || key === 'phosphorus' || key === 'potassium') && ' mg/kg'}
                     </div>
                   </div>
                 );

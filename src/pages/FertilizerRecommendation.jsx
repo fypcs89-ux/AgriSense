@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { database, isDemoMode } from "../firebase/config";
+import { useData } from "../contexts/DataContext.jsx";
 import { useAuth } from "../contexts/AuthContext";
 import {
   FlaskConical,
@@ -30,6 +31,12 @@ const FertilizerRecommendation = () => {
     cropType: "",
   });
   const { currentUser } = useAuth();
+  const { dayBuckets } = useData();
+
+  // Only allow actions when all three days are completed
+  const threeComplete = React.useMemo(() => (
+    !!(dayBuckets?.day1?.isComplete && dayBuckets?.day2?.isComplete && dayBuckets?.day3?.isComplete)
+  ), [dayBuckets?.day1?.isComplete, dayBuckets?.day2?.isComplete, dayBuckets?.day3?.isComplete]);
 
   // Auto-populate form fields with prepared data from Results page
   useEffect(() => {
@@ -44,7 +51,7 @@ const FertilizerRecommendation = () => {
         );
         detach = onValue(r, (snap) => {
           const val = snap.val();
-          if (val && val.averages) {
+          if (val && val.averages && threeComplete) {
             // Auto-populate form with calculated averages
             setFormData((prev) => ({
               ...prev,
@@ -55,13 +62,29 @@ const FertilizerRecommendation = () => {
                 (
                   val.averages.soilTemperature || val.averages.temperature
                 )?.toString() || "",
-              ph: val.averages.ph?.toString() || "",
+              ph: (() => {
+                const p = Number(val.averages.ph);
+                if (!Number.isFinite(p)) return "";
+                return Math.max(0, Math.min(8, p)).toString();
+              })(),
               soilType: val.soilType || "Black",
               cropType: val.crop || "",
             }));
 
             // Also set sensor data for display
             setSensorData(val.averages);
+          } else {
+            // Prepared averages removed: clear the form and local display
+            setSensorData(null);
+            setFormData((prev) => ({
+              ...prev,
+              nitrogen: "0",
+              phosphorus: "0",
+              potassium: "0",
+              soilTemperature: "0",
+              ph: "0",
+              // Keep soilType/cropType as user selections
+            }));
           }
         });
       } catch (e) {
@@ -73,7 +96,7 @@ const FertilizerRecommendation = () => {
         detach && detach();
       } catch {}
     };
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, threeComplete]);
 
   // Load existing fertilizer recommendation from Firebase
   useEffect(() => {
@@ -141,6 +164,19 @@ const FertilizerRecommendation = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    // Clamp pH to 0-8 range
+    if (name === 'ph') {
+      let v = value;
+      if (v === '' || v === null || v === undefined) {
+        // allow clearing for editing
+        setFormData((prev) => ({ ...prev, ph: '' }));
+        return;
+      }
+      const num = Number(v);
+      const clamped = isNaN(num) ? '' : Math.max(0, Math.min(8, num));
+      setFormData((prev) => ({ ...prev, ph: clamped.toString() }));
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -234,8 +270,27 @@ const FertilizerRecommendation = () => {
         };
 
         setRecommendation(recommendation);
-
-        // Store fertilizer recommendation in Firebase
+        
+        // Store predicted fertilizer inside prepared/fertilizerPrediction
+        try {
+          if (currentUser?.uid) {
+            const { ref, get, set } = await import('firebase/database');
+            const path = `users/${currentUser.uid}/prepared/fertilizerPrediction`;
+            const r = ref(database, path);
+            let existing = {};
+            try {
+              const snap = await get(r);
+              existing = snap.exists() ? (snap.val() || {}) : {};
+            } catch {}
+            await set(r, {
+              ...existing,
+              ts: Date.now(),
+              fertilizer: result.fertilizer,
+            });
+          }
+        } catch (e) {
+          console.warn('Failed to persist predicted fertilizer to prepared node:', e);
+        }
       } else {
         throw new Error(
           result.error || "Failed to get fertilizer recommendation"
@@ -269,8 +324,8 @@ const FertilizerRecommendation = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-0 page-with-top-gap">
-      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-4 sm:pt-6 pb-6 sm:pb-8">
+    <div className="min-h-screen bg-gray-50 p-0 page-with-top-gap overflow-x-hidden">
+      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-4 sm:pt-6 pb-6 sm:pb-8 max-w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -282,13 +337,15 @@ const FertilizerRecommendation = () => {
             <div className="bg-orange-100 p-3 rounded-lg">
               <FlaskConical className="w-8 h-8 text-orange-600" />
             </div>
-            <h1 className="flex-1 min-w-0 text-xl sm:text-2xl font-bold text-gray-800 leading-tight break-words">
-              Fertilizer Recommendation
-            </h1>
+            <div className="flex flex-row flex-wrap items-center space-x-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800 leading-tight whitespace-nowrap">
+                Fertilizer Recommendation
+              </h1>
+              <p className="basis-full text-sm sm:text-base text-gray-600">
+                AI-powered fertilizer suggestions based on soil nutrient analysis
+              </p>
+            </div>
           </div>
-          <p className="text-sm sm:text-base text-gray-600 mb-4">
-            AI-powered fertilizer suggestions based on soil nutrient analysis
-          </p>
         </motion.div>
 
         {/* Input Form */}
@@ -307,7 +364,7 @@ const FertilizerRecommendation = () => {
             {/* Nitrogen */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nitrogen (N) - ppm
+                Nitrogen (N) - mg/kg
               </label>
               <input
                 type="number"
@@ -323,7 +380,7 @@ const FertilizerRecommendation = () => {
             {/* Phosphorus */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Phosphorus (P) - ppm
+                Phosphorus (P) - mg/kg
               </label>
               <input
                 type="number"
@@ -339,7 +396,7 @@ const FertilizerRecommendation = () => {
             {/* Potassium */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Potassium (K) - ppm
+                Potassium (K) - mg/kg
               </label>
               <input
                 type="number"
@@ -382,7 +439,8 @@ const FertilizerRecommendation = () => {
                 value={formData.ph}
                 onChange={handleInputChange}
                 placeholder="e.g., 6.5"
-                max="14"
+                min="0"
+                max="8"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               />
             </div>
@@ -448,9 +506,9 @@ const FertilizerRecommendation = () => {
           <div className="flex justify-center">
             <button
               onClick={fetchRecommendation}
-              disabled={loading || !formData.soilType || !formData.cropType}
+              disabled={loading || !formData.soilType || !formData.cropType || !threeComplete}
               className={`px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 flex items-center space-x-3 shadow-lg transform hover:-translate-y-1 ${
-                !formData.soilType || !formData.cropType
+                !formData.soilType || !formData.cropType || !threeComplete
                   ? "bg-gray-400 text-gray-600 cursor-not-allowed"
                   : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-xl"
               } ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -470,6 +528,11 @@ const FertilizerRecommendation = () => {
           </div>
 
           {/* Helper text */}
+          {!threeComplete && (
+            <p className="text-sm text-gray-500 text-center mt-4">
+              Waiting for 3 days to complete...
+            </p>
+          )}
           {(!formData.soilType || !formData.cropType) && (
             <p className="text-sm text-gray-500 text-center mt-4">
               Please select both Soil Type and Crop Type to get fertilizer

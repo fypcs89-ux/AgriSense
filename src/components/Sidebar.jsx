@@ -73,7 +73,7 @@ const Sidebar = ({ staticOnDesktop = false }) => {
       <div
         className={`w-64 bg-gray-50 min-h-screen shadow-lg fixed left-0 top-0 z-50 transform transition-transform duration-300 ease-in-out
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:translate-x-0 lg:sticky lg:top-0 lg:left-0 lg:z-40 lg:transform-none lg:h-screen`}
+        lg:translate-x-0 lg:fixed lg:top-0 lg:left-0 lg:z-40 lg:transform-none lg:h-screen`}
       >
       {/* Logo Section */}
       <div className="p-4 sm:p-6 border-b border-gray-200 relative">

@@ -20,10 +20,10 @@ import { useAuth } from './contexts/AuthContext';
 function AppRoutes() {
   const { currentUser } = useAuth() || {};
   return (
-    <div className="min-h-screen lg:flex">
+    <div className="min-h-screen max-w-full overflow-x-hidden">
       {/* Sidebar fixed on desktop */}
       <Sidebar />
-      <main className="min-h-screen bg-gray-100 min-w-0 flex-1 main-content">
+      <main className="bg-gray-100 min-w-0 flex-1 main-content max-w-full overflow-x-hidden lg:ml-64 h-screen overflow-y-auto">
         <Routes>
           <Route
             path="/"
@@ -69,7 +69,7 @@ function App() {
   return (
     <AuthProvider>
       <DataProvider>
-        <Router>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AppRoutes />
         </Router>
       </DataProvider>

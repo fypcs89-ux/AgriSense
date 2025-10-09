@@ -204,27 +204,27 @@ const SensorDashboard = () => {
     {
       title: "Nitrogen (N)",
       value: sensorData.nitrogen,
-      unit: "ppm",
+      unit: "mg/kg",
       color: "nitrogen",
       icon: Leaf,
     },
     {
       title: "Phosphorus (P)",
       value: sensorData.phosphorus,
-      unit: "ppm",
+      unit: "mg/kg",
       color: "phosphorus",
       icon: FlaskConical,
     },
     {
       title: "Potassium (K)",
       value: sensorData.potassium,
-      unit: "ppm",
+      unit: "mg/kg",
       color: "potassium",
       icon: TestTube,
     },
     {
       title: "pH Level",
-      value: sensorData.ph,
+      value: Math.min(sensorData.ph, 9),
       unit: "pH",
       color: "ph",
       icon: Activity,
@@ -244,7 +244,7 @@ const SensorDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-0 page-with-top-gap">
-      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-0 pb-6 sm:pb-8">
+      <div className="w-full pl-4 sm:pl-6 pr-4 sm:pr-6 pt-0 pb-6 sm:pb-8 max-w-full mx-auto">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -252,17 +252,18 @@ const SensorDashboard = () => {
           transition={{ duration: 0.5 }}
           className="mb-4 sm:mb-6"
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 mb-2">
-                Sensor Dashboard
-              </h1>
-              <p className="text-gray-600">
-                Real-time monitoring of your agricultural sensors
-              </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start space-x-3 min-w-0">
+              <div className="bg-green-100 p-3 rounded-lg">
+                <Beaker className="w-7 h-7 text-green-600" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-3xl font-bold text-gray-800 mb-1">Sensor Dashboard</h1>
+                <p className="text-gray-600">Real-time monitoring of your agricultural sensors</p>
+              </div>
             </div>
-            <div className="text-right">
-              <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200">
+            <div className="text-left sm:text-right w-full sm:w-auto">
+              <div className="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-200 inline-block max-w-full">
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                   <span className="text-sm text-gray-600">Live Data</span>
@@ -278,7 +279,7 @@ const SensorDashboard = () => {
         </motion.div>
 
         {/* Sensor Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6 max-w-full">
           {sensorCards.map((sensor, index) => (
             <motion.div
               key={sensor.title}
@@ -393,7 +394,7 @@ const SensorDashboard = () => {
                       : "text-yellow-600"
                   }`}
                 >
-                  {sensorData.nitrogen > 70 ? "Good" : "Moderate"}
+                  {sensorData.nitrogen > 50 ? "Good" : "Low"}
                 </span>
               </div>
               <div className="flex justify-between">
