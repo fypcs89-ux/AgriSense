@@ -26,10 +26,15 @@ const CropRecommendation = () => {
   const [lockTs, setLockTs] = useState(() => {
     try { return Number(localStorage.getItem('agrisense:lock_ts') || 0); } catch { return 0; }
   });
-  const { hourlyData, dayBuckets } = useData();
+  const { hourlyData, dayBuckets, computeThreeDayAverage } = useData();
   const { currentUser } = useAuth();
   // Use Vite dev proxy; call relative API path in development
   const [rainfall, setRainfall] = useState("");
+
+  // Memoized lock state used by effects and JSX; must be initialized early
+  const isLocked = React.useMemo(() => {
+    return !!lockTs; // authoritative lock until explicitly cleared by newer prediction path
+  }, [lockTs]);
 
   // Compute latest NEW readings since lockTs, like Results.jsx
   const latestNewReadings = React.useMemo(() => {
@@ -113,6 +118,29 @@ const CropRecommendation = () => {
     return () => { try { detach && detach(); } catch {} };
   }, [currentUser?.uid]);
 
+  // Fallback: if three days are complete but prepared pointer hasn't arrived yet,
+  // compute 3-day averages locally from dayBuckets to unblock the UI immediately.
+  React.useEffect(() => {
+    const d1 = dayBuckets?.day1; const d2 = dayBuckets?.day2; const d3 = dayBuckets?.day3;
+    const allDone = !!(d1?.isComplete && d2?.isComplete && d3?.isComplete);
+    if (!allDone) return;
+    // If already have prepared-driven sensorData or lock is active, skip
+    if (predictionReady || !!lockTs) return;
+    try {
+      const avg = computeThreeDayAverage([
+        d1?.average || {},
+        d2?.average || {},
+        d3?.average || {},
+      ]);
+      // Normalize like prepared path
+      const normalized = { ...(avg || {}) };
+      if (Object.prototype.hasOwnProperty.call(normalized, 'rainfall')) delete normalized.rainfall;
+      setSensorData(normalized);
+      setPredictionReady(true);
+      setErrorMsg("");
+    } catch {}
+  }, [dayBuckets?.day1?.isComplete, dayBuckets?.day2?.isComplete, dayBuckets?.day3?.isComplete, predictionReady, lockTs]);
+
   // Subscribe to server-side lock timestamp so lock persists across refreshes
   React.useEffect(() => {
     let detach = null;
@@ -185,9 +213,6 @@ const CropRecommendation = () => {
     };
   }, []);
 
-  const isLocked = React.useMemo(() => {
-    return !!lockTs; // authoritative lock until explicitly cleared by newer prediction path
-  }, [lockTs]);
 
   // Compute recommendation by calling backend using 3-day averaged values + rainfall
   const revealRecommendation = async () => {
@@ -196,31 +221,55 @@ const CropRecommendation = () => {
     if (!Number.isFinite(r) || r <= 0) return;
     setLoading(true);
     try {
-      const url = '/api/crop/predict';
+      const API_BASE = (import.meta.env.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim()) ||
+        'https://agrisense-t12d.onrender.com';
+      const API_FALLBACK = 'https://agrisense-t12d.onrender.com';
+      const url = `${API_BASE}/api/crop/predict`;
       const tempToUse = Number(
         sensorData.soilTemperature != null && !isNaN(Number(sensorData.soilTemperature))
           ? sensorData.soilTemperature
           : sensorData.temperature
       );
       const humidityForModel = Number(sensorData?.moisture ?? sensorData?.humidity ?? 0);
+      const phClamped = (() => {
+        const p = Number(sensorData.ph);
+        if (!Number.isFinite(p)) return 0;
+        return Math.max(0, Math.min(9, p));
+      })();
       const payload = {
         nitrogen: Number(sensorData.nitrogen),
         phosphorus: Number(sensorData.phosphorus),
         potassium: Number(sensorData.potassium),
         temperature: tempToUse,
         humidity: humidityForModel, // use Moisture average in place of Humidity
-        ph: Number(sensorData.ph),
+        ph: phClamped,
         rainfall: r,
         soilTemperature: Number(sensorData.soilTemperature || 0),
       };
-      const res = await fetch(url, {
+      try { console.log('[Crop] request payload:', payload); } catch {}
+      let res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json().catch(() => ({}));
+      // If running locally (no API_BASE) and the proxy target is down or returned an error, retry against Render
+      if ((!API_BASE || API_BASE === '') && (!res.ok || res.status >= 500)) {
+        try {
+          const retryUrl = `${API_FALLBACK}/api/crop/predict`;
+          res = await fetch(retryUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch {}
+      }
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch {}
       if (!res.ok || !data?.ok || !data?.crop) {
-        setErrorMsg(typeof data?.error === 'string' ? data.error : 'Prediction failed');
+        const msg = (typeof data?.error === 'string' && data.error) || raw || `HTTP ${res.status}`;
+        try { console.error('[Crop] server error:', { status: res.status, raw, json: data }); } catch {}
+        setErrorMsg(msg || 'Prediction failed');
         setRecommendation(null);
         return;
       }

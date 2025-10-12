@@ -34,7 +34,7 @@ const FertilizerRecommendation = () => {
   const [formError, setFormError] = useState("");
   const [lastCropTs, setLastCropTs] = useState(0);
   const { currentUser } = useAuth();
-  const { dayBuckets } = useData();
+  const { dayBuckets, computeThreeDayAverage } = useData();
 
   // Only allow actions when all three days are completed
   const threeComplete = React.useMemo(
@@ -93,11 +93,11 @@ const FertilizerRecommendation = () => {
             setSensorData(null);
             setFormData((prev) => ({
               ...prev,
-              nitrogen: "0",
-              phosphorus: "0",
-              potassium: "0",
-              soilTemperature: "0",
-              ph: "0",
+              nitrogen: "",
+              phosphorus: "",
+              potassium: "",
+              soilTemperature: "",
+              ph: "",
               // Keep soilType/cropType as user selections
             }));
           }
@@ -130,9 +130,7 @@ const FertilizerRecommendation = () => {
           const exists = (opts) => opts.some(o => String(o).toLowerCase() === String(crop).toLowerCase());
           setCropOptions((opts) => {
             if (!exists(opts)) {
-              try { console.warn('[Fertilizer] Predicted crop unsupported for fertilizer model:', crop); } catch {}
-              setFormError(`Predicted crop "${crop}" is not supported for fertilizer. Please choose another crop.`);
-              return opts; // do not add unsupported crop
+              return [...opts, crop];
             }
             return opts;
           });
@@ -143,11 +141,13 @@ const FertilizerRecommendation = () => {
           if (avg && Object.keys(avg).length) {
             setFormData((prev) => ({
               ...prev,
-              nitrogen: prev.nitrogen || (avg.nitrogen != null ? String(avg.nitrogen) : prev.nitrogen),
-              phosphorus: prev.phosphorus || (avg.phosphorus != null ? String(avg.phosphorus) : prev.phosphorus),
-              potassium: prev.potassium || (avg.potassium != null ? String(avg.potassium) : prev.potassium),
-              soilTemperature: prev.soilTemperature || (avg.soilTemperature != null ? String(avg.soilTemperature) : (avg.temperature != null ? String(avg.temperature) : prev.soilTemperature)),
-              ph: prev.ph || (avg.ph != null ? String(Math.max(0, Math.min(8, Number(avg.ph)))) : prev.ph),
+              nitrogen: (!prev.nitrogen || Number(prev.nitrogen) <= 0) && avg.nitrogen != null ? String(avg.nitrogen) : prev.nitrogen,
+              phosphorus: (!prev.phosphorus || Number(prev.phosphorus) <= 0) && avg.phosphorus != null ? String(avg.phosphorus) : prev.phosphorus,
+              potassium: (!prev.potassium || Number(prev.potassium) <= 0) && avg.potassium != null ? String(avg.potassium) : prev.potassium,
+              soilTemperature: (!prev.soilTemperature || Number(prev.soilTemperature) <= 0)
+                ? (avg.soilTemperature != null ? String(avg.soilTemperature) : (avg.temperature != null ? String(avg.temperature) : prev.soilTemperature))
+                : prev.soilTemperature,
+              ph: (!prev.ph || Number(prev.ph) <= 0) && avg.ph != null ? String(Math.max(0, Math.min(8, Number(avg.ph)))) : prev.ph,
             }));
           }
         });
@@ -162,9 +162,7 @@ const FertilizerRecommendation = () => {
           const exists = (opts) => opts.some(o => String(o).toLowerCase() === String(crop).toLowerCase());
           setCropOptions((opts) => {
             if (!exists(opts)) {
-              try { console.warn('[Fertilizer] Predicted crop unsupported for fertilizer model:', crop); } catch {}
-              setFormError(`Predicted crop "${crop}" is not supported for fertilizer. Please choose another crop.`);
-              return opts;
+              return [...opts, crop];
             }
             return opts;
           });
@@ -174,6 +172,34 @@ const FertilizerRecommendation = () => {
     })();
     return () => { try { detach && detach(); } catch {} try { detachHist && detachHist(); } catch {} };
   }, [currentUser?.uid]);
+
+  // Fallback: if three days are complete but no prepared averages have arrived,
+  // compute 3-day averages locally from dayBuckets to auto-fill inputs quickly.
+  useEffect(() => {
+    const d1 = dayBuckets?.day1; const d2 = dayBuckets?.day2; const d3 = dayBuckets?.day3;
+    const allDone = !!(d1?.isComplete && d2?.isComplete && d3?.isComplete);
+    if (!allDone) return;
+    if (sensorData && Object.keys(sensorData || {}).length) return; // already hydrated
+    try {
+      const avg = computeThreeDayAverage([
+        d1?.average || {},
+        d2?.average || {},
+        d3?.average || {},
+      ]);
+      if (!avg) return;
+      setSensorData(avg);
+      setFormData((prev) => ({
+        ...prev,
+        nitrogen: (!prev.nitrogen || Number(prev.nitrogen) <= 0) && avg.nitrogen != null ? String(avg.nitrogen) : prev.nitrogen,
+        phosphorus: (!prev.phosphorus || Number(prev.phosphorus) <= 0) && avg.phosphorus != null ? String(avg.phosphorus) : prev.phosphorus,
+        potassium: (!prev.potassium || Number(prev.potassium) <= 0) && avg.potassium != null ? String(avg.potassium) : prev.potassium,
+        soilTemperature: (!prev.soilTemperature || Number(prev.soilTemperature) <= 0)
+          ? (avg.soilTemperature != null ? String(avg.soilTemperature) : (avg.temperature != null ? String(avg.temperature) : prev.soilTemperature))
+          : prev.soilTemperature,
+        ph: (!prev.ph || Number(prev.ph) <= 0) && avg.ph != null ? String(Math.max(0, Math.min(8, Number(avg.ph)))) : prev.ph,
+      }));
+    } catch {}
+  }, [dayBuckets?.day1?.isComplete, dayBuckets?.day2?.isComplete, dayBuckets?.day3?.isComplete, sensorData]);
 
   // Load existing fertilizer recommendation from Firebase
   useEffect(() => {
@@ -226,6 +252,7 @@ const FertilizerRecommendation = () => {
     "Gram",
     "Grapes",
     "Groundnut",
+    "Jute",
     "Jowar",
     "Maize",
     "Masoor",
@@ -288,7 +315,24 @@ const FertilizerRecommendation = () => {
       } = formData;
 
       if (!nitrogen || !phosphorus || !potassium || !soilTemperature || !ph) {
-        alert("Please fill in all sensor data fields");
+        setFormError("Please fill in all sensor data fields");
+        setLoading(false);
+        return;
+      }
+
+      const nNum = Number(nitrogen);
+      const pNum = Number(phosphorus);
+      const kNum = Number(potassium);
+      const tNum = Number(soilTemperature);
+      const phNum = Number(ph);
+      const invalid = [nNum, pNum, kNum, tNum, phNum].some((v) => !Number.isFinite(v));
+      if (invalid) {
+        setFormError("Sensor values must be valid numbers.");
+        setLoading(false);
+        return;
+      }
+      if (nNum <= 0 || pNum <= 0 || kNum <= 0 || tNum <= 0 || phNum <= 0) {
+        setFormError("Sensor values must be greater than 0.");
         setLoading(false);
         return;
       }
@@ -325,30 +369,42 @@ const FertilizerRecommendation = () => {
 
       // Prepare data for API call
       const requestData = {
-        nitrogen: parseFloat(nitrogen),
-        phosphorus: parseFloat(phosphorus),
-        potassium: parseFloat(potassium),
-        temperature: parseFloat(soilTemperature), // Using soil temperature instead of air temperature
-        ph: parseFloat(ph),
+        nitrogen: nNum,
+        phosphorus: pNum,
+        potassium: kNum,
+        temperature: tNum, // Using soil temperature instead of air temperature
+        ph: Math.max(0, Math.min(8, phNum)),
         soil_type: matchedSoil,
         crop_type: matchedCrop,
       };
       // Debug: log payload being sent
       try { console.log("[Fertilizer] request payload:", requestData); } catch {}
 
-      // Call fertilizer recommendation API (via Vite proxy in dev)
-      const response = await fetch("/api/fertilizer/predict", {
+      // Call fertilizer recommendation API (via Vite proxy in dev or API_BASE in prod)
+      const API_BASE = (import.meta.env.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim()) ||
+        'https://agrisense-t12d.onrender.com';
+      const API_FALLBACK = 'https://agrisense-t12d.onrender.com';
+      let response = await fetch(`${API_BASE}/api/fertilizer/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestData),
       });
+      if ((!API_BASE || API_BASE === '') && (!response.ok || response.status >= 500)) {
+        try {
+          response = await fetch(`${API_FALLBACK}/api/fertilizer/predict`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestData),
+          });
+        } catch {}
+      }
 
       const raw = await response.text();
       let result = {};
       try { result = raw ? JSON.parse(raw) : {}; } catch {}
 
       if (!response.ok || !result?.ok) {
-        const msg = result?.error || raw || `HTTP error ${response.status}`;
+        const msg = result?.error || raw || `HTTP ${response.status}`;
         try { console.error("[Fertilizer] server error:", { status: response.status, raw, json: result }); } catch {}
         throw new Error(msg);
       }

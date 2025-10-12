@@ -218,6 +218,8 @@ const Results = () => {
       setPrefetchError("");
       setPrefetching(true);
       try {
+        const API_BASE = import.meta.env.VITE_API_BASE || '';
+        const url = `${API_BASE}/api/crop/predict`;
         const tempToUse = Number(
           threeDayAverage.soilTemperature != null && !isNaN(Number(threeDayAverage.soilTemperature))
             ? threeDayAverage.soilTemperature
@@ -234,7 +236,6 @@ const Results = () => {
           // rainfall intentionally omitted; will be added when user inputs it
           // soilTemperature removed from prepared payload to avoid duplication
         };
-        const url = "/api/crop/predict";
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
