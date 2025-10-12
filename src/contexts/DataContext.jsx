@@ -4,6 +4,10 @@ import { useAuth } from "./AuthContext";
 
 const DataContext = createContext();
 
+// Feature flag to enable/disable storing hourly history under
+// `users/{uid}/history/hourly`. Set to false to remove/guard writer & readers.
+const ENABLE_HOURLY_HISTORY = true;
+
 export const useData = () => {
   const context = useContext(DataContext);
   if (!context) {
@@ -63,25 +67,32 @@ export const DataProvider = ({ children }) => {
       const day3Ref = ref(database, `${base}/day3`);
       const currentDayRef = ref(database, `${base}/currentDay`);
 
-      const unsubscribeHistory = onValue(historyRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          const historyArray = Object.entries(data)
-            .map(([key, value]) => ({
-              id: key,
-              timestamp: value?.timestamp
-                ? new Date(value.timestamp)
-                : new Date(),
-              ...value,
-            }))
-            .sort((a, b) => b.timestamp - a.timestamp);
+      let unsubscribeHistory = null;
+      if (ENABLE_HOURLY_HISTORY) {
+        unsubscribeHistory = onValue(historyRef, (snapshot) => {
+          const data = snapshot.val();
+          if (data) {
+            const historyArray = Object.entries(data)
+              .map(([key, value]) => ({
+                id: key,
+                timestamp: value?.timestamp
+                  ? new Date(value.timestamp)
+                  : new Date(),
+                ...value,
+              }))
+              .sort((a, b) => b.timestamp - a.timestamp);
 
-          setHourlyData(historyArray);
-        } else {
-          setHourlyData([]);
-        }
+            setHourlyData(historyArray);
+          } else {
+            setHourlyData([]);
+          }
+          setLoading(false);
+        });
+      } else {
+        // When hourly history is disabled, ensure state is empty and loading is cleared
+        setHourlyData([]);
         setLoading(false);
-      });
+      }
 
       const unsubscribeSummary = onValue(summaryRef, (snapshot) => {
         const data = snapshot.val();
@@ -115,7 +126,9 @@ export const DataProvider = ({ children }) => {
       const u4 = onValue(currentDayRef, (s) => { cd = Number(s.val() || 1); mergeDays(d1, d2, d3, cd); });
 
       return () => {
-        unsubscribeHistory();
+        if (typeof unsubscribeHistory === "function") {
+          try { unsubscribeHistory(); } catch {}
+        }
         unsubscribeSummary();
         try { u1 && u1(); } catch {}
         try { u2 && u2(); } catch {}
@@ -271,7 +284,10 @@ export const DataProvider = ({ children }) => {
             ph: curVals.ph.toFixed(1),
             readingCount: 1,
           };
-          await set(entryRef, payload);
+          // Guarded: do not write hourly history when disabled
+          if (ENABLE_HOURLY_HISTORY) {
+            await set(entryRef, payload);
+          }
 
           // Also feed the day-batching pipeline (5 readings per day)
           try {
@@ -310,7 +326,7 @@ export const DataProvider = ({ children }) => {
   // Daily summary rollup: aggregate today's entries into history/daily/YYYYMMDD
   useEffect(() => {
     // Do not run summary if unauthenticated
-    if (!currentUser?.uid) {
+    if (!currentUser?.uid || !ENABLE_HOURLY_HISTORY) {
       return;
     }
     let timer = null;
@@ -508,21 +524,8 @@ export const DataProvider = ({ children }) => {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok || !data?.crop) return;
 
-      const { ref, set } = await import("firebase/database");
-      if (!currentUser?.uid) return;
-      const base = `users/${currentUser.uid}/prepared`;
-      await set(ref(database, `${base}/cropPrediction`), {
-        ts: Date.now(),
-        crop: data.crop,
-        averages: payload,
-      });
-      await set(ref(database, `${base}/fertilizerPrediction`), {
-        ts: Date.now(),
-        crop: data.crop,
-        soilType: "Black",
-        averages: payload,
-      });
-      try { window.dispatchEvent(new Event("agrisense:prepared-updated")); } catch {}
+      // Do not auto-create prepared nodes here. Prepared nodes will be created
+      // only when the user explicitly clicks the respective buttons on the UI.
     } catch (e) {
       console.warn("sendToModel failed:", e);
     }

@@ -244,6 +244,7 @@ const Home = () => {
           isLogin={isLogin}
           onToggle={() => setIsLogin(!isLogin)}
           onClose={() => setShowLoginForm(false)}
+          size="sm"
         />
       )}
     </div>

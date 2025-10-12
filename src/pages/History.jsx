@@ -26,9 +26,15 @@ const History = () => {
   const [expandedDays, setExpandedDays] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
-  const { hourlyData, dailySummaries, loading, clearHistory, startNewCycle, dayBuckets } = useData();
+  const { hourlyData, dailySummaries, loading, clearHistory, startNewCycle, dayBuckets, computeThreeDayAverage } = useData();
   const [cycleExpanded, setCycleExpanded] = useState({ day1: true, day2: false, day3: false });
   const { currentUser } = useAuth() || {};
+
+  // Reset local grouped state when the authenticated user changes
+  useEffect(() => {
+    setGroupedData({});
+    setExpandedDays({});
+  }, [currentUser?.uid]);
 
   // Normalize timestamps to Date objects to avoid runtime errors (memoized)
   const normalizedHourly = useMemo(() => {
@@ -44,6 +50,19 @@ const History = () => {
       return { ...r, timestamp: ts };
     });
   }, [hourlyData]);
+
+  // Compute 3-day averages from the current user's cycle buckets
+  const threeDayAvg = useMemo(() => {
+    try {
+      const d1 = dayBuckets?.day1?.average || null;
+      const d2 = dayBuckets?.day2?.average || null;
+      const d3 = dayBuckets?.day3?.average || null;
+      if (computeThreeDayAverage) {
+        return computeThreeDayAverage([d1, d2, d3]);
+      }
+    } catch {}
+    return { temperature: 0, humidity: 0, moisture: 0, ph: 0 };
+  }, [dayBuckets, computeThreeDayAverage]);
 
   // Group data by date - keep existing daily history intact
   useEffect(() => {
@@ -458,7 +477,7 @@ const History = () => {
 
         {/* Removed date-based Daily Grouped Data per user request */}
 
-        {/* Summary Stats */}
+        {/* Summary Stats (3-Day Cycle Averages Only) */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -466,12 +485,7 @@ const History = () => {
           className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-6"
         >
           {['temperature', 'humidity', 'moisture', 'ph'].map((metric) => {
-            const allReadings = filteredDays.flatMap(day => day.readings);
-            const values = allReadings.map(item => parseFloat(item[metric])).filter(v => !isNaN(v));
-            const avg = values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : 0;
-            const min = values.length ? Math.min(...values).toFixed(1) : 0;
-            const max = values.length ? Math.max(...values).toFixed(1) : 0;
-
+            const avg = Number(threeDayAvg?.[metric] ?? 0).toFixed(1);
             return (
               <div key={metric} className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
                 <div className="flex items-center space-x-3 mb-4">
@@ -480,16 +494,8 @@ const History = () => {
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Average</span>
+                    <span className="text-gray-600">Average (3-day)</span>
                     <span className="font-semibold text-gray-800">{avg}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Min</span>
-                    <span className="font-semibold text-blue-600">{min}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Max</span>
-                    <span className="font-semibold text-red-600">{max}</span>
                   </div>
                 </div>
               </div>

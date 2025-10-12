@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
 
-const LoginForm = ({ isLogin, onToggle, onClose }) => {
+const LoginForm = ({ isLogin, onToggle, onClose, size = 'sm' }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -61,7 +61,7 @@ const LoginForm = ({ isLogin, onToggle, onClose }) => {
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md mx-4"
+        className={`bg-white rounded-2xl shadow-2xl p-6 mx-4 w-[360px] sm:w-[420px]`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-center mb-8">
@@ -93,7 +93,7 @@ const LoginForm = ({ isLogin, onToggle, onClose }) => {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 placeholder="Enter your email"
                 required
               />
@@ -110,7 +110,7 @@ const LoginForm = ({ isLogin, onToggle, onClose }) => {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full pl-10 pr-12 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 placeholder="Enter your password"
                 required
               />
@@ -127,7 +127,7 @@ const LoginForm = ({ isLogin, onToggle, onClose }) => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary-500 text-white py-3 rounded-lg font-semibold hover:bg-primary-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-primary-500 text-white py-2.5 rounded-lg font-semibold hover:bg-primary-600 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Please wait...' : (isLogin ? 'Sign In' : 'Create Account')}
           </button>

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fertilizer Recommender</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .form-container {
+            background-color: white;
+            padding: 30px 40px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            width: 350px;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+
+        label {
+            display: block;
+            margin-top: 15px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #218838;
+        }
+
+        h3 {
+            text-align: center;
+            margin-top: 20px;
+            color: #007BFF;
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h2>Fertilizer Recommendation</h2>
+        <form method="post" action="/predict">
+            <label>Nitrogen:</label>
+            <input type="number" step="0.1" name="nitrogen" required>
+
+            <label>Phosphorus:</label>
+            <input type="number" step="0.1" name="phosphorus" required>
+
+            <label>Potassium:</label>
+            <input type="number" step="0.1" name="potassium" required>
+
+            <label>Temperature (°C):</label>
+            <input type="number" step="0.1" name="temperature" required>
+
+            <label>Soil Type:</label>
+            <select name="soil_type" required>
+                <option>Black</option>
+                <option>Dark Brown</option>
+                <option>Light Brown</option>
+                <option>Medium Brown</option>
+                <option>Red</option>
+                <option>Reddish Brown</option>
+            </select>
+            
+            <label>Soil pH:</label>
+            <input type="number" step="0.1" name="ph" required>
+
+            <label>Crop Type:</label>
+            <select name="crop_type" required>
+                <option>Cotton</option>
+                <option>Ginger</option>
+                <option>Gram</option>
+                <option>Grapes</option>
+                <option>Groundnut</option>
+                <option>Jowar</option>
+                <option>Maize</option>
+                <option>Masoor</option>
+                <option>Moong</option>
+                <option>Rice</option>
+                <option>Soybean</option>
+                <option>Sugarcane</option>
+                <option>Tur</option>
+                <option>Turmeric</option>
+                <option>Urad</option>
+                <option>Wheat</option>
+            </select>
+
+            <button type="submit">Predict</button>
+        </form>
+
+        <h3>{{ prediction_text }}</h3>
+    </div>
+</body>
+</html>

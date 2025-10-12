@@ -47,7 +47,9 @@ export function AuthProvider({ children }) {
       // Check if account already exists for this email
       const methods = await fetchSignInMethodsForEmail(auth, email).catch(() => []);
       if (Array.isArray(methods) && methods.includes("password")) {
-        throw new Error("Account already exists. Please sign in.");
+        const err = new Error("Email already in use. Please sign in.");
+        err.code = "auth/email-already-in-use";
+        throw err;
       }
       try {
         const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -56,13 +58,24 @@ export function AuthProvider({ children }) {
         return cred;
       } catch (e) {
         if (e?.code === "auth/user-not-found") {
-          throw new Error("No account found for this email. Please sign up.");
+          const err = new Error("No account found for this email. Please sign up.");
+          err.code = e.code;
+          throw err;
         }
         if (e?.code === "auth/wrong-password") {
-          throw new Error("Incorrect password. Please try again.");
+          const err = new Error("Incorrect password. Please try again.");
+          err.code = e.code;
+          throw err;
         }
         if (e?.code === "auth/invalid-credential") {
-          throw new Error("Invalid credentials. Please try again.");
+          const err = new Error("Invalid credentials. Please try again.");
+          err.code = e.code;
+          throw err;
+        }
+        if (e?.code) {
+          const err = new Error(e.message || "Sign up failed");
+          err.code = e.code;
+          throw err;
         }
         throw e;
       }

@@ -108,12 +108,24 @@ def create_app():
 
     try:
         base_dir = os.path.dirname(__file__)
-        crop_dir = os.path.join(
-            base_dir,
-            "FYP ML Models",
-            "Crop-Recommendation-System-FYP",
-            "Crop-Recommendation-System-FYP",
-        )
+        models_root_updated = os.path.join(base_dir, "Updated FYP ML Models")
+        models_root_legacy = os.path.join(base_dir, "FYP ML Models")
+        models_root = models_root_updated if os.path.exists(models_root_updated) else models_root_legacy
+        # Resolve crop model directory robustly by searching for model.pkl
+        crop_search_root = os.path.join(models_root, "Crop-Recommendation-System-FYP")
+        crop_dir = None
+        if os.path.exists(crop_search_root):
+            for _root, _dirs, _files in os.walk(crop_search_root):
+                if "model.pkl" in _files:
+                    crop_dir = _root
+                    break
+        # Fallback to the previously expected nested path if not found
+        if not crop_dir:
+            crop_dir = os.path.join(
+                models_root,
+                "Crop-Recommendation-System-FYP",
+                "Crop-Recommendation-System-FYP",
+            )
         model_path = os.path.join(crop_dir, "model.pkl")
         std_path = os.path.join(crop_dir, "standardscaler.pkl")
         minmax_path = os.path.join(crop_dir, "minmaxscaler.pkl")
@@ -133,8 +145,7 @@ def create_app():
     # Load Fertilizer Recommendation model
     try:
         fertilizer_dir = os.path.join(
-            base_dir,
-            "FYP ML Models",
+            models_root,
             "Fertilizer Recommendation FYP",
         )
         fert_model_path = os.path.join(fertilizer_dir, "model", "fertmodel.pkl")
@@ -175,12 +186,23 @@ def create_app():
     @app.get("/status")
     def status():
         base_dir = os.path.dirname(__file__)
-        crop_dir = os.path.join(
-            base_dir,
-            "FYP ML Models",
-            "Crop-Recommendation-System-FYP",
-            "Crop-Recommendation-System-FYP",
-        )
+        models_root_updated = os.path.join(base_dir, "Updated FYP ML Models")
+        models_root_legacy = os.path.join(base_dir, "FYP ML Models")
+        models_root = models_root_updated if os.path.exists(models_root_updated) else models_root_legacy
+        # Resolve crop model directory by searching for model.pkl
+        crop_search_root = os.path.join(models_root, "Crop-Recommendation-System-FYP")
+        crop_dir = None
+        if os.path.exists(crop_search_root):
+            for _root, _dirs, _files in os.walk(crop_search_root):
+                if "model.pkl" in _files:
+                    crop_dir = _root
+                    break
+        if not crop_dir:
+            crop_dir = os.path.join(
+                models_root,
+                "Crop-Recommendation-System-FYP",
+                "Crop-Recommendation-System-FYP",
+            )
         model_path = os.path.join(crop_dir, "model.pkl")
         std_path = os.path.join(crop_dir, "standardscaler.pkl")
         minmax_path = os.path.join(crop_dir, "minmaxscaler.pkl")

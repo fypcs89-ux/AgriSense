@@ -27,16 +27,29 @@ const FertilizerRecommendation = () => {
     potassium: "",
     soilTemperature: "",
     ph: "",
-    soilType: "",
+    soilType: "Light Brown",
     cropType: "",
   });
+  const [touched, setTouched] = useState({ soilType: false, cropType: false });
+  const [formError, setFormError] = useState("");
+  const [lastCropTs, setLastCropTs] = useState(0);
   const { currentUser } = useAuth();
   const { dayBuckets } = useData();
 
   // Only allow actions when all three days are completed
-  const threeComplete = React.useMemo(() => (
-    !!(dayBuckets?.day1?.isComplete && dayBuckets?.day2?.isComplete && dayBuckets?.day3?.isComplete)
-  ), [dayBuckets?.day1?.isComplete, dayBuckets?.day2?.isComplete, dayBuckets?.day3?.isComplete]);
+  const threeComplete = React.useMemo(
+    () =>
+      !!(
+        dayBuckets?.day1?.isComplete &&
+        dayBuckets?.day2?.isComplete &&
+        dayBuckets?.day3?.isComplete
+      ),
+    [
+      dayBuckets?.day1?.isComplete,
+      dayBuckets?.day2?.isComplete,
+      dayBuckets?.day3?.isComplete,
+    ]
+  );
 
   // Auto-populate form fields with prepared data from Results page
   useEffect(() => {
@@ -51,7 +64,8 @@ const FertilizerRecommendation = () => {
         );
         detach = onValue(r, (snap) => {
           const val = snap.val();
-          if (val && val.averages && threeComplete) {
+          try { console.log('[Fertilizer] prepared/fertilizerPrediction snapshot:', val); } catch {}
+          if (val && val.averages) {
             // Auto-populate form with calculated averages
             setFormData((prev) => ({
               ...prev,
@@ -67,8 +81,9 @@ const FertilizerRecommendation = () => {
                 if (!Number.isFinite(p)) return "";
                 return Math.max(0, Math.min(8, p)).toString();
               })(),
-              soilType: val.soilType || "Black",
-              cropType: val.crop || "",
+              // Only set soilType/cropType from prepared data if user hasn't manually chosen
+              soilType: touched.soilType ? prev.soilType : (val.soilType || "Light Brown"),
+              cropType: touched.cropType ? prev.cropType : (val.crop || ""),
             }));
 
             // Also set sensor data for display
@@ -97,6 +112,68 @@ const FertilizerRecommendation = () => {
       } catch {}
     };
   }, [currentUser?.uid, threeComplete]);
+
+  // Also subscribe to crop recommendation pointer to auto-fill cropType from CropRecommendation
+  useEffect(() => {
+    let detach = null;
+    let detachHist = null;
+    (async () => {
+      try {
+        if (!currentUser?.uid) return;
+        const { ref, onValue, query, limitToLast } = await import("firebase/database");
+        const r = ref(database, `users/${currentUser.uid}/prepared/cropPrediction`);
+        detach = onValue(r, (snap) => {
+          const val = snap.val();
+          const crop = val?.crop;
+          if (!crop) return;
+          // Only auto-fill if crop exists in allowed options
+          const exists = (opts) => opts.some(o => String(o).toLowerCase() === String(crop).toLowerCase());
+          setCropOptions((opts) => {
+            if (!exists(opts)) {
+              try { console.warn('[Fertilizer] Predicted crop unsupported for fertilizer model:', crop); } catch {}
+              setFormError(`Predicted crop "${crop}" is not supported for fertilizer. Please choose another crop.`);
+              return opts; // do not add unsupported crop
+            }
+            return opts;
+          });
+          setFormData((prev) => ({ ...prev, cropType: crop }));
+
+          // If averages are present on the crop pointer, hydrate sensor fields too
+          const avg = val?.averages || {};
+          if (avg && Object.keys(avg).length) {
+            setFormData((prev) => ({
+              ...prev,
+              nitrogen: prev.nitrogen || (avg.nitrogen != null ? String(avg.nitrogen) : prev.nitrogen),
+              phosphorus: prev.phosphorus || (avg.phosphorus != null ? String(avg.phosphorus) : prev.phosphorus),
+              potassium: prev.potassium || (avg.potassium != null ? String(avg.potassium) : prev.potassium),
+              soilTemperature: prev.soilTemperature || (avg.soilTemperature != null ? String(avg.soilTemperature) : (avg.temperature != null ? String(avg.temperature) : prev.soilTemperature)),
+              ph: prev.ph || (avg.ph != null ? String(Math.max(0, Math.min(8, Number(avg.ph)))) : prev.ph),
+            }));
+          }
+        });
+
+        // Fallback: also watch the latest item from cropPredictions history in case pointer isn't present
+        const q = query(ref(database, `users/${currentUser.uid}/prepared/cropPredictions`), limitToLast(1));
+        detachHist = onValue(q, (snap) => {
+          const obj = snap.val();
+          const latest = obj && typeof obj === 'object' ? Object.values(obj)[0] : null;
+          const crop = latest?.crop;
+          if (!crop) return;
+          const exists = (opts) => opts.some(o => String(o).toLowerCase() === String(crop).toLowerCase());
+          setCropOptions((opts) => {
+            if (!exists(opts)) {
+              try { console.warn('[Fertilizer] Predicted crop unsupported for fertilizer model:', crop); } catch {}
+              setFormError(`Predicted crop "${crop}" is not supported for fertilizer. Please choose another crop.`);
+              return opts;
+            }
+            return opts;
+          });
+          setFormData((prev) => ({ ...prev, cropType: crop }));
+        });
+      } catch {}
+    })();
+    return () => { try { detach && detach(); } catch {} try { detachHist && detachHist(); } catch {} };
+  }, [currentUser?.uid]);
 
   // Load existing fertilizer recommendation from Firebase
   useEffect(() => {
@@ -142,8 +219,8 @@ const FertilizerRecommendation = () => {
     "Reddish Brown",
   ];
 
-  // Crop type options
-  const cropTypes = [
+  // Crop type options (as state so we can include predicted crops dynamically)
+  const [cropOptions, setCropOptions] = useState([
     "Cotton",
     "Ginger",
     "Gram",
@@ -160,33 +237,45 @@ const FertilizerRecommendation = () => {
     "Turmeric",
     "Urad",
     "Wheat",
-  ];
+  ]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     // Clamp pH to 0-8 range
-    if (name === 'ph') {
+    if (name === "ph") {
       let v = value;
-      if (v === '' || v === null || v === undefined) {
+      if (v === "" || v === null || v === undefined) {
         // allow clearing for editing
-        setFormData((prev) => ({ ...prev, ph: '' }));
+        setFormData((prev) => ({ ...prev, ph: "" }));
         return;
       }
       const num = Number(v);
-      const clamped = isNaN(num) ? '' : Math.max(0, Math.min(8, num));
+      const clamped = isNaN(num) ? "" : Math.max(0, Math.min(8, num));
       setFormData((prev) => ({ ...prev, ph: clamped.toString() }));
+      return;
+    }
+    if (name === "soilType" || name === "cropType") {
+      setTouched((t) => ({ ...t, [name]: true }));
+      setFormData((prev) => ({
+        ...prev,
+        [name]: value,
+      }));
+      setFormError("");
+      // Do NOT mark as manual edit when only selecting soil/crop
       return;
     }
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+    setFormError("");
   };
 
   const fetchRecommendation = async () => {
     setLoading(true);
 
     try {
+      setFormError("");
       // Validate form data
       const {
         nitrogen,
@@ -205,10 +294,34 @@ const FertilizerRecommendation = () => {
       }
 
       if (!soilType || !cropType) {
-        alert("Please select both Soil Type and Crop Type");
+        setFormError("Please select both Soil Type and Crop Type");
         setLoading(false);
         return;
       }
+
+      // Validate crop against allowed options
+      const isAllowedCrop = (opts, c) => opts.some(o => String(o).toLowerCase() === String(c).toLowerCase());
+      if (!isAllowedCrop(cropOptions, cropType)) {
+        setFormError(`Crop "${cropType}" is not supported for fertilizer. Please choose another crop from the list.`);
+        setLoading(false);
+        return;
+      }
+
+      // Validate soil type against allowed options
+      const isAllowedSoil = (opts, s) => opts.some(o => String(o).toLowerCase() === String(s).toLowerCase());
+      if (!isAllowedSoil(soilTypes, soilType)) {
+        setFormError(`Soil type "${soilType}" is not supported. Please choose one from the list.`);
+        setLoading(false);
+        return;
+      }
+
+      // Match exact-cased crop and soil values to backend maps
+      const matchFrom = (options, val) => {
+        const found = options.find(o => String(o).toLowerCase() === String(val).toLowerCase());
+        return found || val;
+      };
+      const matchedCrop = matchFrom(cropOptions, cropType); // e.g., "Wheat"
+      const matchedSoil = matchFrom(soilTypes, soilType);   // e.g., "Light Brown"
 
       // Prepare data for API call
       const requestData = {
@@ -217,27 +330,28 @@ const FertilizerRecommendation = () => {
         potassium: parseFloat(potassium),
         temperature: parseFloat(soilTemperature), // Using soil temperature instead of air temperature
         ph: parseFloat(ph),
-        soil_type: soilType,
-        crop_type: cropType,
+        soil_type: matchedSoil,
+        crop_type: matchedCrop,
       };
+      // Debug: log payload being sent
+      try { console.log("[Fertilizer] request payload:", requestData); } catch {}
 
-      // Call fertilizer recommendation API
-      const response = await fetch(
-        "http://localhost:5000/api/fertilizer/predict",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(requestData),
-        }
-      );
+      // Call fertilizer recommendation API (via Vite proxy in dev)
+      const response = await fetch("/api/fertilizer/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestData),
+      });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const raw = await response.text();
+      let result = {};
+      try { result = raw ? JSON.parse(raw) : {}; } catch {}
+
+      if (!response.ok || !result?.ok) {
+        const msg = result?.error || raw || `HTTP error ${response.status}`;
+        try { console.error("[Fertilizer] server error:", { status: response.status, raw, json: result }); } catch {}
+        throw new Error(msg);
       }
-
-      const result = await response.json();
 
       if (result.ok) {
         // Create recommendation object with the predicted fertilizer
@@ -270,26 +384,51 @@ const FertilizerRecommendation = () => {
         };
 
         setRecommendation(recommendation);
-        
-        // Store predicted fertilizer inside prepared/fertilizerPrediction
+
+        // Persist: always write to prepared/fertilizerPrediction on click and also append to history list
         try {
           if (currentUser?.uid) {
-            const { ref, get, set } = await import('firebase/database');
-            const path = `users/${currentUser.uid}/prepared/fertilizerPrediction`;
-            const r = ref(database, path);
-            let existing = {};
-            try {
-              const snap = await get(r);
-              existing = snap.exists() ? (snap.val() || {}) : {};
-            } catch {}
-            await set(r, {
-              ...existing,
+            const { ref, set, push } = await import("firebase/database");
+            const targetPath = `users/${currentUser.uid}/prepared/fertilizerPrediction`;
+            const nodeRef = ref(database, targetPath);
+            await set(nodeRef, {
+              ts: Date.now(),
+              via: "form",
+              fertilizer: result.fertilizer,
+              inputs: {
+                nitrogen: parseFloat(formData.nitrogen),
+                phosphorus: parseFloat(formData.phosphorus),
+                potassium: parseFloat(formData.potassium),
+                soilTemperature: parseFloat(formData.soilTemperature),
+                ph: parseFloat(formData.ph),
+              },
+              selections: {
+                soilType: formData.soilType || "",
+                cropType: formData.cropType || "",
+              },
+            });
+            // Also append to fertilizerPredictions history
+            const base = `users/${currentUser.uid}/prepared`;
+            const listRef = ref(database, `${base}/fertilizerPredictions`);
+            const newItemRef = push(listRef);
+            await set(newItemRef, {
               ts: Date.now(),
               fertilizer: result.fertilizer,
+              inputs: {
+                nitrogen: parseFloat(formData.nitrogen),
+                phosphorus: parseFloat(formData.phosphorus),
+                potassium: parseFloat(formData.potassium),
+                soilTemperature: parseFloat(formData.soilTemperature),
+                ph: parseFloat(formData.ph),
+              },
+              selections: {
+                soilType: formData.soilType || "",
+                cropType: formData.cropType || "",
+              },
             });
           }
         } catch (e) {
-          console.warn('Failed to persist predicted fertilizer to prepared node:', e);
+          console.warn("Failed to persist user fertilizer prediction:", e);
         }
       } else {
         throw new Error(
@@ -342,7 +481,8 @@ const FertilizerRecommendation = () => {
                 Fertilizer Recommendation
               </h1>
               <p className="basis-full text-sm sm:text-base text-gray-600">
-                AI-powered fertilizer suggestions based on soil nutrient analysis
+                AI-powered fertilizer suggestions based on soil nutrient
+                analysis
               </p>
             </div>
           </div>
@@ -493,7 +633,7 @@ const FertilizerRecommendation = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
               >
                 <option value="">Select Crop Type</option>
-                {cropTypes.map((crop) => (
+                {cropOptions.map((crop) => (
                   <option key={crop} value={crop}>
                     {crop}
                   </option>
@@ -506,9 +646,13 @@ const FertilizerRecommendation = () => {
           <div className="flex justify-center">
             <button
               onClick={fetchRecommendation}
-              disabled={loading || !formData.soilType || !formData.cropType || !threeComplete}
+              disabled={
+                loading ||
+                !formData.soilType ||
+                !formData.cropType
+              }
               className={`px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-200 flex items-center space-x-3 shadow-lg transform hover:-translate-y-1 ${
-                !formData.soilType || !formData.cropType || !threeComplete
+                !formData.soilType || !formData.cropType
                   ? "bg-gray-400 text-gray-600 cursor-not-allowed"
                   : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-xl"
               } ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
@@ -528,11 +672,6 @@ const FertilizerRecommendation = () => {
           </div>
 
           {/* Helper text */}
-          {!threeComplete && (
-            <p className="text-sm text-gray-500 text-center mt-4">
-              Waiting for 3 days to complete...
-            </p>
-          )}
           {(!formData.soilType || !formData.cropType) && (
             <p className="text-sm text-gray-500 text-center mt-4">
               Please select both Soil Type and Crop Type to get fertilizer

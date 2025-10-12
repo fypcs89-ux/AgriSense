@@ -244,7 +244,7 @@ const CropRecommendation = () => {
       // Persist prepared nodes with real rainfall and without soilTemperature
       try {
         if (currentUser?.uid) {
-          const { ref, set } = await import('firebase/database');
+          const { ref, set, push } = await import('firebase/database');
           const base = `users/${currentUser.uid}/prepared`;
           const storageAverages = {
             nitrogen: Number(sensorData.nitrogen),
@@ -256,17 +256,17 @@ const CropRecommendation = () => {
             ph: Number(sensorData.ph),
             rainfall: r,
           };
-          await set(ref(database, `${base}/cropPrediction`), {
+          const latest = {
             ts: Date.now(),
             crop: data.crop,
             averages: storageAverages,
-          });
-          await set(ref(database, `${base}/fertilizerPrediction`), {
-            ts: Date.now(),
-            crop: data.crop,
-            soilType: 'Black',
-            averages: storageAverages,
-          });
+          };
+          // Latest pointer (for compatibility with subscribers)
+          await set(ref(database, `${base}/cropPrediction`), latest);
+          // Also append to history list to create a new entry every time
+          const listRef = ref(database, `${base}/cropPredictions`);
+          const newItemRef = push(listRef);
+          await set(newItemRef, latest);
         }
       } catch (e) {
         // Non-fatal: UI already shows recommendation; log for debugging
