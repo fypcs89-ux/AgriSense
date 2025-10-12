@@ -222,11 +222,8 @@ def create_app():
     # Strict crop prediction endpoint. It only predicts when frontend sends averaged values.
     # Expected JSON keys (case-insensitive):
     #   nitrogen (N), phosporus/phosphorus (P), potassium (K), temperature, humidity, ph, rainfall
-    @app.route('/api/crop/predict', methods=['POST', 'OPTIONS'])
+    @app.route('/api/crop/predict', methods=['POST'])
     def crop_predict():
-        # Handle CORS preflight explicitly
-        if request.method == 'OPTIONS':
-            return ('', 204)
         if app.crop_model is None:
             return jsonify({"ok": False, "error": "Crop model not loaded"}), 500
 
@@ -266,11 +263,8 @@ def create_app():
             return jsonify({"ok": False, "error": str(e)}), 400
 
     # Fertilizer prediction endpoint
-    @app.route('/api/fertilizer/predict', methods=['POST', 'OPTIONS'])
+    @app.route('/api/fertilizer/predict', methods=['POST'])
     def fertilizer_predict():
-        # Handle CORS preflight explicitly
-        if request.method == 'OPTIONS':
-            return ('', 204)
         if app.fertilizer_model is None:
             return jsonify({"ok": False, "error": "Fertilizer model not loaded"}), 500
 
