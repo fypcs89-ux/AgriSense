@@ -516,11 +516,22 @@ export const DataProvider = ({ children }) => {
         humidity: Number(finalAvg?.moisture ?? finalAvg?.humidity ?? 0),
         ph: Number(finalAvg?.ph || 0),
       };
-      const res = await fetch("/api/crop/predict", {
+      const API_BASE = (import.meta.env.VITE_API_BASE && String(import.meta.env.VITE_API_BASE).trim()) || '';
+      const API_FALLBACK = 'https://agrisense-t12d.onrender.com';
+      let res = await fetch(`${API_BASE}/api/crop/predict`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if ((!API_BASE || API_BASE === '') && (!res.ok || res.status >= 500)) {
+        try {
+          res = await fetch(`${API_FALLBACK}/api/crop/predict`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+        } catch {}
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok || !data?.crop) return;
 

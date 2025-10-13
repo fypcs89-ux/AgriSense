@@ -256,11 +256,41 @@ def create_app():
 
         x = np.array([[N, P, K, temp, humidity, ph, rainfall]])
         try:
-            # Convert to DataFrame with feature names to match training data
+            # Convert to DataFrame and align columns with scaler expectations if available
             import pandas as pd
             feature_names = ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall']
             x_df = pd.DataFrame(x, columns=feature_names)
-            x_scaled = app.crop_minmax_scaler.transform(x_df) if app.crop_minmax_scaler is not None else x
+
+            def _normalize(s: str) -> str:
+                try:
+                    return ''.join(ch.lower() for ch in str(s) if ch.isalnum())
+                except Exception:
+                    return str(s)
+
+            # Determine expected column order/names from scalers if available
+            expected_cols = []
+            if getattr(app.crop_minmax_scaler, 'feature_names_in_', None) is not None:
+                expected_cols = list(app.crop_minmax_scaler.feature_names_in_)
+            elif getattr(app.crop_standard_scaler, 'feature_names_in_', None) is not None:
+                expected_cols = list(app.crop_standard_scaler.feature_names_in_)
+
+            if expected_cols:
+                # Build mapping by normalized names to handle case/format differences
+                cur_by_norm = {_normalize(c): c for c in x_df.columns}
+                remapped = []
+                for ec in expected_cols:
+                    key = _normalize(ec)
+                    if key in cur_by_norm:
+                        remapped.append(cur_by_norm[key])
+                    else:
+                        # Column not present; create it with zeros
+                        x_df[str(ec)] = 0.0
+                        remapped.append(str(ec))
+                # Reindex and rename to exact expected names
+                x_df = x_df[remapped]
+                x_df.columns = list(expected_cols)
+
+            x_scaled = app.crop_minmax_scaler.transform(x_df) if app.crop_minmax_scaler is not None else x_df.values
             x_final = app.crop_standard_scaler.transform(x_scaled) if app.crop_standard_scaler is not None else x_scaled
             pred = app.crop_model.predict(x_final)
             label = app.crop_label_map.get(int(pred[0]), "Unknown")
@@ -312,12 +342,38 @@ def create_app():
         x = np.array([[N, P, K, temp, soil_type_encoded, ph, crop_type_encoded]])
 
         try:
-            # Convert to DataFrame with feature names to match training data
+            # Convert to DataFrame and align columns with scaler expectations if available
             import pandas as pd
             feature_names = ['Nitrogen', 'Phosphorus', 'Potassium', 'Temperature', 'Soil_Type', 'pH', 'Crop_Type']
             x_df = pd.DataFrame(x, columns=feature_names)
+
+            def _normalize(s: str) -> str:
+                try:
+                    return ''.join(ch.lower() for ch in str(s) if ch.isalnum())
+                except Exception:
+                    return str(s)
+
+            expected_cols = []
+            if getattr(app.fertilizer_minmax_scaler, 'feature_names_in_', None) is not None:
+                expected_cols = list(app.fertilizer_minmax_scaler.feature_names_in_)
+            elif getattr(app.fertilizer_standard_scaler, 'feature_names_in_', None) is not None:
+                expected_cols = list(app.fertilizer_standard_scaler.feature_names_in_)
+
+            if expected_cols:
+                cur_by_norm = {_normalize(c): c for c in x_df.columns}
+                remapped = []
+                for ec in expected_cols:
+                    key = _normalize(ec)
+                    if key in cur_by_norm:
+                        remapped.append(cur_by_norm[key])
+                    else:
+                        x_df[str(ec)] = 0.0
+                        remapped.append(str(ec))
+                x_df = x_df[remapped]
+                x_df.columns = list(expected_cols)
+
             # Apply scalers
-            x_scaled = app.fertilizer_minmax_scaler.transform(x_df) if app.fertilizer_minmax_scaler is not None else x
+            x_scaled = app.fertilizer_minmax_scaler.transform(x_df) if app.fertilizer_minmax_scaler is not None else x_df.values
             x_final = app.fertilizer_standard_scaler.transform(x_scaled) if app.fertilizer_standard_scaler is not None else x_scaled
 
             # Predict
