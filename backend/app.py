@@ -125,6 +125,7 @@ def create_app():
                 models_root,
                 "Crop-Recommendation-System-FYP",
                 "Crop-Recommendation-System-FYP",
+                "Crop-Recommendation-System-FYP",
             )
         model_path = os.path.join(crop_dir, "model.pkl")
         std_path = os.path.join(crop_dir, "standardscaler.pkl")
@@ -174,7 +175,7 @@ def create_app():
         return jsonify({"status": "ok", "api": True}), 200
 
     # Alternate health for debugging
-    @app.get("/healthz")
+    @app.get("/health")
     def healthz():
         return jsonify({"status": "ok", "alt": True}), 200
 
@@ -200,6 +201,7 @@ def create_app():
         if not crop_dir:
             crop_dir = os.path.join(
                 models_root,
+                "Crop-Recommendation-System-FYP",
                 "Crop-Recommendation-System-FYP",
                 "Crop-Recommendation-System-FYP",
             )
@@ -318,7 +320,11 @@ def create_app():
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
 
-    
+    @app.route('/history')
+    def history():
+        return jsonify({"ok": True, "message": "History data is stored locally in Firebase"}), 200
+
+
     return app
 
 
