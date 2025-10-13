@@ -92,7 +92,7 @@ def create_app():
     app.crop_type_map = {
         'Cotton': 0, 'Ginger': 1, 'Gram': 2, 'Grapes': 3,
         'Groundnut': 4, 'Jowar': 5, 'Maize': 6, 'Masoor': 7,
-        'Moong': 8, 'Rice': 9, 'Soybean': 10, 'Sugarcane': 11,
+        'Moong': 8, 'Rice': 9, 'Soybean': 10, 'Sugar Cane': 11,
         'Tur': 12, 'Turmeric': 13, 'Urad': 14, 'Wheat': 15
     }
     
