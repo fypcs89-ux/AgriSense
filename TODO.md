@@ -6,5 +6,6 @@
 - [x] Remove explicit OPTIONS handling from /api/fertilizer/predict endpoint in backend/app.py
 - [x] Fix model path in backend/app.py to point to the correct nested directory
 - [x] Fix crop type mapping to match frontend ("Sugar Cane" instead of "Sugarcane")
+- [x] Fix sklearn warnings by using DataFrame with feature names for scaler transforms
 - [x] Redeploy the backend on Render
 - [ ] Test the frontend request to ensure CORS is resolved

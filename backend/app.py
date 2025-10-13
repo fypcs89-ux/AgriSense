@@ -256,7 +256,11 @@ def create_app():
 
         x = np.array([[N, P, K, temp, humidity, ph, rainfall]])
         try:
-            x_scaled = app.crop_minmax_scaler.transform(x) if app.crop_minmax_scaler is not None else x
+            # Convert to DataFrame with feature names to match training data
+            import pandas as pd
+            feature_names = ['N', 'P', 'K', 'temperature', 'humidity', 'ph', 'rainfall']
+            x_df = pd.DataFrame(x, columns=feature_names)
+            x_scaled = app.crop_minmax_scaler.transform(x_df) if app.crop_minmax_scaler is not None else x
             x_final = app.crop_standard_scaler.transform(x_scaled) if app.crop_standard_scaler is not None else x_scaled
             pred = app.crop_model.predict(x_final)
             label = app.crop_label_map.get(int(pred[0]), "Unknown")
@@ -306,16 +310,20 @@ def create_app():
 
         # Prepare input data: [N, P, K, temp, soil_type, pH, crop_type]
         x = np.array([[N, P, K, temp, soil_type_encoded, ph, crop_type_encoded]])
-        
+
         try:
+            # Convert to DataFrame with feature names to match training data
+            import pandas as pd
+            feature_names = ['Nitrogen', 'Phosphorus', 'Potassium', 'Temperature', 'Soil_Type', 'pH', 'Crop_Type']
+            x_df = pd.DataFrame(x, columns=feature_names)
             # Apply scalers
-            x_scaled = app.fertilizer_minmax_scaler.transform(x) if app.fertilizer_minmax_scaler is not None else x
+            x_scaled = app.fertilizer_minmax_scaler.transform(x_df) if app.fertilizer_minmax_scaler is not None else x
             x_final = app.fertilizer_standard_scaler.transform(x_scaled) if app.fertilizer_standard_scaler is not None else x_scaled
-            
+
             # Predict
             pred = app.fertilizer_model.predict(x_final)
             fertilizer = app.fertilizer_map_reverse.get(int(pred[0]), "Unknown")
-            
+
             return jsonify({"ok": True, "fertilizer": fertilizer}), 200
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 400
